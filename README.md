@@ -1,6 +1,6 @@
 ```markdown
 # 🔥 IP Geolocation Intelligence Hub
-
+[![CodeQL Advanced](https://github.com/FJ-cyberzilla/ip-geolocator/actions/workflows/codeql.yml/badge.svg)](https://github.com/FJ-cyberzilla/ip-geolocator/actions/workflows/codeql.yml)
 <div align="center">
 
 ![Version](https://img.shields.io/badge/version-3.0.0-orange?style=for-the-badge)
