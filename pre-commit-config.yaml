@@ -1,0 +1,66 @@
+fail_fast: false
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3.10
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ["--profile", "black"]
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies:
+          - flake8-pyproject
+          - flake8-bugbear
+          - flake8-docstrings
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.9.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - aiohttp
+          - pyyaml
+          - types-aiofiles
+          - types-PyYAML
+          - pytricia
+          - maxminddb
+        args: ["--config-file=pyproject.toml"]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        args: ["-c", "pyproject.toml"]
+        additional_dependencies: ["bandit[toml]"]
+        exclude: "^(tests/|test_.*)"
+
+  - repo: https://github.com/pycqa/pylint
+    rev: v3.2.3
+    hooks:
+      - id: pylint
+        additional_dependencies:
+          - rich
+          - aiohttp
+          - pyyaml
+        args: ["--rcfile=pyproject.toml", "--fail-under=8.0"]

@@ -1,0 +1,26 @@
+# AI Ignore - Standard patterns for AI safety and focus
+.git/
+.github/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.ipgeo/
+*.db
+*.sqlite3
+*.key
+*.json
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+reports/
+logs/
+.DS_Store
