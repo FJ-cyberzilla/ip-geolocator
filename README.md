@@ -1,13 +1,6 @@
 ```markdown
 # 🔥 IP Geolocation Intelligence Hub
-[![CodeQL Advanced](https://github.com/FJ-cyberzilla/ip-geolocator/actions/workflows/codeql.yml/badge.svg)](https://github.com/FJ-cyberzilla/ip-geolocator/actions/workflows/codeql.yml)
-<div align="center">
 
-![Version](https://img.shields.io/badge/version-3.0.0-orange?style=for-the-badge)
-![Python](https://img.shields.io/badge/python-3.10+-blue?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
-![Code Style](https://img.shields.io/badge/code%20style-black-000000?style=for-the-badge)
-![Pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?style=for-the-badge)
 
 **Orange Inferno Edition · Production-Grade IP Intelligence**
 
