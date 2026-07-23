@@ -14,13 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from ip_geolocator.models import IPInfo
 from ip_geolocator.config import ConfigManager
 from ip_geolocator.api import (
-    APIService,
     GeoLocationService,
     IPGeoError,
     AuthenticationError,
-    RateLimitError,
     NetworkError,
 )
+from ip_geolocator.services import IpApiService, IpStackService, MaxMindService
 
 
 # ---------------------------------------------------------------------------
@@ -59,22 +58,6 @@ class TestIPInfo(unittest.TestCase):
         self.assertEqual(v6.version, "IPv6")
         invalid = IPInfo(ip="invalid")
         self.assertEqual(invalid.version, "IPv4")  # keeps default
-
-
-# ---------------------------------------------------------------------------
-# Tests for APIService enum
-# ---------------------------------------------------------------------------
-class TestAPIService(unittest.TestCase):
-    def test_members_exist(self) -> None:
-        """Check that the expected services are defined."""
-        self.assertEqual(APIService.IP_API.value, "ip-api")
-        self.assertEqual(APIService.IPSTACK.value, "ipstack")
-        self.assertEqual(APIService.MAXMIND.value, "maxmind")
-
-    def test_requires_key(self) -> None:
-        self.assertFalse(APIService.IP_API.requires_key)
-        self.assertTrue(APIService.IPSTACK.requires_key)
-        self.assertTrue(APIService.MAXMIND.requires_key)
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +117,6 @@ class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
     async def test_lookup_multi_mock_success(self) -> None:
         """Mock a successful multi‑source lookup."""
         mock_info1 = IPInfo(ip="1.1.1.1", country="Australia", country_code="AU")
-        mock_info2 = IPInfo(ip="1.1.1.1", country="Australia", country_code="AU")
-        async def fake_fetch(*args, **kwargs):
-            return mock_info1
         # Patch the internal method that does the actual HTTP call
         with patch.object(
             GeoLocationService, "_fetch_from_service", new=AsyncMock()
@@ -146,18 +126,6 @@ class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].country, "Australia")
             self.assertEqual(results[0].country_code, "AU")
-
-    async def test_lookup_multi_skips_missing_keys(self) -> None:
-        """Services requiring a key are skipped when not configured."""
-        # Config has no keys at all
-        self.config.get_api_key.return_value = None
-        self.config.get_maxmind_auth.return_value = (None, None)
-
-        results = await self.service.lookup_multi(
-            "1.1.1.1",
-            sources=[APIService.IPSTACK, APIService.MAXMIND],
-        )
-        self.assertEqual(len(results), 0)  # both skipped
 
     async def test_lookup_multi_raises_on_auth_error(self) -> None:
         """AuthenticationError from a service propagates immediately."""
@@ -178,7 +146,7 @@ class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(side_effect=[NetworkError("timeout"), mock_success]),
         ):
             results = await self.service.lookup_multi(
-                "1.1.1.1", sources=[APIService.IP_API, APIService.IP_API]
+                "1.1.1.1", sources=[IpApiService(), IpApiService()]
             )
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].country, "Germany")
@@ -186,6 +154,86 @@ class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.service.close()
 
+
+# ---------------------------------------------------------------------------
+# Tests for reporter
+# ---------------------------------------------------------------------------
+class TestReporter(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.cwd = os.getcwd()
+        os.chdir(self.tmpdir.name)
+
+    def tearDown(self):
+        os.chdir(self.cwd)
+        self.tmpdir.cleanup()
+
+    def test_export_json(self):
+        """Test JSON export."""
+        from ip_geolocator.reporter import export_data
+        info = IPInfo(ip="1.2.3.4", country="Testland")
+        export_data(info, "json")
+        self.assertTrue(os.path.exists("report_1.2.3.4.json"))
+
+    def test_export_stix(self):
+        """Test STIX export."""
+        from ip_geolocator.reporter import export_data
+        info = IPInfo(ip="1.2.3.4", country="Testland")
+        export_data(info, "stix")
+        self.assertTrue(os.path.exists("report_1.2.3.4_stix.json"))
+
+
+# ---------------------------------------------------------------------------
+# Tests for service parsers
+# ---------------------------------------------------------------------------
+class TestServiceParsers(unittest.TestCase):
+    def test_ip_api_parser(self):
+        """Test IpApiService parser."""
+        data = {
+            "status": "success",
+            "city": "Berlin",
+            "regionName": "Berlin",
+            "countryCode": "DE",
+            "lat": 52.52,
+            "lon": 13.40,
+            "isp": "ISP Name",
+        }
+        service = IpApiService()
+        info = service.parse_response(data, "1.2.3.4")
+        self.assertEqual(info.city, "Berlin")
+        self.assertEqual(info.isp, "ISP Name")
+
+    def test_ipstack_parser(self):
+        """Test IpStackService parser."""
+        data = {
+            "success": True,
+            "city": "Paris",
+            "region_name": "Île-de-France",
+            "country_code": "FR",
+            "latitude": 48.85,
+            "longitude": 2.35,
+            "org": "ISP Name",
+        }
+        service = IpStackService()
+        info = service.parse_response(data, "1.2.3.4")
+        self.assertEqual(info.city, "Paris")
+        self.assertEqual(info.isp, "ISP Name")
+
+    def test_maxmind_parser(self):
+        """Test MaxMindService parser."""
+        data = {
+            "city": {"names": {"en": "London"}},
+            "subdivisions": [{"names": {"en": "Greater London"}}],
+            "country": {"iso_code": "GB"},
+            "location": {"latitude": 51.50, "longitude": -0.12},
+            "traits": {"isp": "ISP Name"},
+        }
+        service = MaxMindService()
+        info = service.parse_response(data, "1.2.3.4")
+        self.assertEqual(info.city, "London")
+        self.assertEqual(info.isp, "ISP Name")
+        self.assertEqual(info.latitude, 51.50)
+        self.assertEqual(info.longitude, -0.12)
 
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":

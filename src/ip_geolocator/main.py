@@ -5,22 +5,19 @@ Main application entry point – production‑grade, fully async, with robust er
 import asyncio
 import ipaddress
 import logging
-import sys
 import traceback
-from pathlib import Path
-from typing import Optional
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.style import Style
+from rich.text import Text
 
-from .ui import Display
 from .config import ConfigManager
 from .engine import IntelligenceOrchestrator
-from .reporter import Reporter
+from .reporter import export_data
+from .ui import Display
 from .viz import generate_visual_report, open_visual_report
-from rich.panel import Panel
-from rich.text import Text
-from rich.style import Style
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -64,7 +61,7 @@ class App:
             await self._menu[choice][1]()  # call the handler coroutine
 
         # Clean up
-        await self._shutdown()
+        await self.shutdown()
 
     # ── Command handlers ───────────────────────────────────────────────────
     async def _handle_scan(self) -> None:
@@ -85,11 +82,11 @@ class App:
 
         # 3. Orchestrate intelligence with a spinner
         info = None
-        with console.status("[bold gold1]Orchestrating Intelligence...[/]") as status:
+        with console.status("[bold gold1]Orchestrating Intelligence...[/]"):
             try:
                 info = await self.orchestrator.get_intel(target)
-            except Exception:
-                logger.exception("Scan failed for target '%s'", target)
+            except (RuntimeError, ValueError, OSError) as exc:
+                logger.exception("Scan failed for target '%s': %s", target, exc)
                 console.print(
                     f"[bold red]Unexpected error during scan:[/]\n{traceback.format_exc()}"
                 )
@@ -106,13 +103,13 @@ class App:
         )
         if action == "visual":
             try:
-                path = generate_visual_report(info, self.config.REPORTS_DIR)
+                path = generate_visual_report(info, self.config.reports_dir)
                 open_visual_report(path)
-            except Exception:
+            except (OSError, RuntimeError) as exc:
                 console.print("[red]Failed to generate visual report.[/]")
-                logger.exception("Visual report generation failed.")
+                logger.exception("Visual report generation failed: %s", exc)
         elif action in ("stix", "json"):
-            Reporter.export(info, action)  # Reporter.export(data, format) assumed
+            export_data(info, action)  # Reporter.export(data, format) assumed
 
     async def _handle_settings(self) -> None:
         """Placeholder for settings management."""
@@ -136,12 +133,12 @@ class App:
         """Graceful exit."""
         self._running = False
 
-    async def _shutdown(self) -> None:
+    async def shutdown(self) -> None:
         """Close resources and finalize."""
         try:
             await self.orchestrator.close()
-        except Exception:
-            logger.exception("Error closing orchestrator.")
+        except (OSError, RuntimeError) as exc:
+            logger.exception("Error closing orchestrator: %s", exc)
         console.print("[yellow]Session terminated. Goodbye.[/]")
 
 
@@ -155,7 +152,7 @@ async def async_main() -> None:
         console.print("\n[yellow]Interrupted by user.[/]")
     finally:
         # Ensure orchestrator is closed even if run() crashes
-        await app._shutdown()
+        await app.shutdown()
 
 
 def main() -> None:
