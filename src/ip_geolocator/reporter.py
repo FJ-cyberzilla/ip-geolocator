@@ -1,49 +1,33 @@
-import csv
+"""Module for reporting geolocation findings."""
+
 import json
-import time
-from pathlib import Path
-from typing import Any, Optional
+import logging
 
-class Reporter:
-    @staticmethod
-    def export(data: Any, fmt: str = "json", filename: Optional[str] = None) -> str:
-        """
-        Write data to a file in the specified format.
+from .models import IPInfo
 
-        Args:
-            data: Data to export (list of IPInfo objects, dicts, etc.).
-            fmt: 'json', 'csv', or 'txt'.
-            filename: Base name (without extension). Auto‑generated if omitted.
+logger = logging.getLogger(__name__)
 
-        Returns:
-            Full path to the created file.
-        """
-        if filename is None:
-            filename = f"intel_report_{int(time.time())}"
-        out_path = Path("reports") / f"{filename}.{fmt}"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if fmt == "json":
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
-        elif fmt == "csv":
-            with open(out_path, "w", newline="", encoding="utf-8") as f:
-                if isinstance(data, list) and data:
-                    first = data[0]
-                    if hasattr(first, "__dict__"):
-                        fieldnames = list(vars(first).keys())
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        writer.writeheader()
-                        for item in data:
-                            writer.writerow(vars(item))
-                    elif isinstance(first, dict):
-                        fieldnames = first.keys()
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        writer.writeheader()
-                        writer.writerows(data)
-                else:
-                    f.write(str(data))
-        else:  # plain text fallback
-            with open(out_path, "w", encoding="utf-8") as f:
-                f.write(str(data))
-        return str(out_path)
+def export_data(data: IPInfo, format_type: str) -> None:
+    """Export intelligence data to a specified format."""
+    logger.info("Exporting data in %s format.", format_type)
+
+    if format_type == "json":
+        filename = f"report_{data.ip}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data.to_dict(), f, indent=4)
+        logger.info("Saved %s", filename)
+    elif format_type == "stix":
+        logger.warning("STIX export is simplified.")
+        stix_data = {
+            "type": "indicator",
+            "pattern": f"[ipv4-addr:value = '{data.ip}']",
+            "name": f"Geolocation for {data.ip}",
+            "data": data.to_dict(),
+        }
+        filename = f"report_{data.ip}_stix.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(stix_data, f, indent=4)
+        logger.info("Saved %s", filename)
+    else:
+        logger.error("Unsupported format: %s", format_type)

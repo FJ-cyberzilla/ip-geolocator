@@ -16,14 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from rich.align import Align
 from rich.box import HEAVY, DOUBLE, MINIMAL_HEAVY_HEAD
-from rich.columns import Columns
-from rich.console import Console, Group, RenderableType
+from rich.console import Console, Group
 from rich.live import Live
-from rich.padding import Padding
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.style import Style
