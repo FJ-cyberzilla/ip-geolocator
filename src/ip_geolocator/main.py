@@ -31,7 +31,7 @@ class App:
     and report generation. Completely non‑blocking and safe for production.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = ConfigManager()
         self.orchestrator = IntelligenceOrchestrator(self.config)
         self._running = True
@@ -66,36 +66,43 @@ class App:
     # ── Command handlers ───────────────────────────────────────────────────
     async def _handle_scan(self) -> None:
         """Perform an IP geolocation scan."""
-        # 1. Prompt for target with clear instruction
+        target = self._get_target_ip()
+        if not target:
+            return
+
+        info = await self._execute_scan(target)
+        if not info:
+            return
+
+        Display.show_info(info)
+        await self._handle_post_scan_actions(info)
+
+    def _get_target_ip(self) -> Optional[str]:
         target = Prompt.ask(
             "[bold orange3]Target IP[/] (or 'me' for your public IP)",
             default="me",
         ).strip()
 
-        # 2. Validate input
         if target.lower() != "me":
             try:
                 ipaddress.ip_address(target)
             except ValueError:
                 console.print(f"[bold red]Invalid IP address:[/] {target}")
-                return
+                return None
+        return target
 
-        # 3. Orchestrate intelligence with a spinner
-        info = None
+    async def _execute_scan(self, target: str) -> Optional[Any]:
         with console.status("[bold gold1]Orchestrating Intelligence...[/]"):
             try:
-                info = await self.orchestrator.get_intel(target)
+                return await self.orchestrator.get_intel(target)
             except (RuntimeError, ValueError, OSError) as exc:
                 logger.exception("Scan failed for target '%s': %s", target, exc)
                 console.print(
                     f"[bold red]Unexpected error during scan:[/]\n{traceback.format_exc()}"
                 )
-                return
+                return None
 
-        # 4. Show results (spinner already gone)
-        Display.show_info(info)
-
-        # 5. Offer post‑scan actions
+    async def _handle_post_scan_actions(self, info: Any) -> None:
         action = Prompt.ask(
             "Post-Scan Actions",
             choices=["none", "visual", "stix", "json"],
@@ -109,7 +116,8 @@ class App:
                 console.print("[red]Failed to generate visual report.[/]")
                 logger.exception("Visual report generation failed: %s", exc)
         elif action in ("stix", "json"):
-            export_data(info, action)  # Reporter.export(data, format) assumed
+            export_data(info, action)
+
 
     async def _handle_settings(self) -> None:
         """Placeholder for settings management."""

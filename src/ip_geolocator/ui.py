@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
 
 from rich.align import Align
 from rich.box import HEAVY, DOUBLE, MINIMAL_HEAVY_HEAD
@@ -54,19 +54,28 @@ SPINNER_STYLE = Style(color=PALETTE[3], bold=True)
 # ── Helper builders ────────────────────────────────────────────────────────
 def _gradient_span(text: str, palette: Tuple[str, ...] = PALETTE, bold: bool = True) -> Text:
     """Apply per-character gradient, optimized by grouping consecutive same-color chars."""
+    if len(text) > 50:
+        return _apply_chunked_gradient(text, palette, bold)
+    return _apply_character_gradient(text, palette, bold)
+
+
+def _apply_chunked_gradient(text: str, palette: Tuple[str, ...], bold: bool) -> Text:
     result = Text()
     n = len(palette)
-    # For long strings, batch into chunks per palette color to reduce Span overhead
-    if len(text) > 50:
-        chunk_size = max(1, len(text) // n)
-        for i, color in enumerate(palette):
-            start = i * chunk_size
-            end = start + chunk_size if i < n - 1 else len(text)
-            if start < len(text):
-                result.append(text[start:end], style=Style(color=color, bold=bold))
-    else:
-        for i, ch in enumerate(text):
-            result.append(ch, style=Style(color=palette[i % n], bold=bold))
+    chunk_size = max(1, len(text) // n)
+    for i, color in enumerate(palette):
+        start = i * chunk_size
+        end = start + chunk_size if i < n - 1 else len(text)
+        if start < len(text):
+            result.append(text[start:end], style=Style(color=color, bold=bold))
+    return result
+
+
+def _apply_character_gradient(text: str, palette: Tuple[str, ...], bold: bool) -> Text:
+    result = Text()
+    n = len(palette)
+    for i, ch in enumerate(text):
+        result.append(ch, style=Style(color=palette[i % n], bold=bold))
     return result
 
 
@@ -103,23 +112,29 @@ def _build_divider(char: str = "━", width: Optional[int] = None) -> Text:
 def _build_menu(items: List[str]) -> Table:
     """Flexible menu grid with ember glow."""
     tbl = Table.grid(padding=(0, 3), expand=False)
-    # Distribute items across rows, 4 items per row (as in original)
+    
+    # Chunk items into rows of 4
+    for i in range(0, len(items), 4):
+        row = _create_menu_row(items[i : i + 4])
+        # Pad incomplete final row
+        while len(row) < 4:
+            row.append(Text(""))
+        tbl.add_row(*row)
+    return tbl
+
+
+
+def _create_menu_row(items: List[str]) -> List[Text]:
     row = []
     for idx, label in enumerate(items):
-        number = f" {idx + 1} " if idx < 9 else f" {idx + 1} "
+        number = f" {idx + 1} "
         entry = Text.assemble(
             (number, Style(color=PALETTE[idx % len(PALETTE)], bold=True)),
             (label, Style(color=PALETTE[(idx + 2) % len(PALETTE)], bold=True)),
         )
         row.append(entry)
-        if len(row) == 4:
-            tbl.add_row(*row)
-            row = []
-    if row:  # incomplete final row
-        while len(row) < 4:
-            row.append(Text(""))
-        tbl.add_row(*row)
-    return tbl
+    return row
+
 
 
 def _build_status_bar() -> Text:
@@ -199,7 +214,7 @@ class Display:
         content_group.extend([sparks, Text(""), status])
 
         panel = Panel(
-            Group(*content_group),
+            Group(*cast(Any, content_group)),
             border_style=BORDER_STYLE,
             box=HEAVY,
             padding=(1, 3),
@@ -235,6 +250,26 @@ class Display:
             (f"  {getattr(info, 'ip', 'N/A')}  ", Style(color=PALETTE[0], bold=True)),
         )
 
+        tbl = Display._build_info_table(info, fields)
+
+        content = Group(
+            Align.center(header),
+            Align.center(ip_row),
+            Text(""),
+            Align.center(tbl),
+        )
+
+        panel = Panel(
+            content,
+            border_style=Style(color=PALETTE[0], bold=True),
+            box=DOUBLE,
+            padding=(1, 3),
+            expand=False,
+        )
+        console.print(Align.center(panel))
+
+    @staticmethod
+    def _build_info_table(info: Any, fields: List[Tuple[str, str]]) -> Table:
         tbl = Table(
             box=MINIMAL_HEAVY_HEAD,
             border_style=Style(color=PALETTE[3]),
@@ -255,7 +290,11 @@ class Display:
                 val = "N/A"
             tbl.add_row(display_name, str(val))
 
-        # Add threat level gauge if present
+        Display._add_threat_gauge(tbl, info)
+        return tbl
+
+    @staticmethod
+    def _add_threat_gauge(tbl: Table, info: Any) -> None:
         if hasattr(info, "threat_level") and info.threat_level is not None:
             try:
                 threat = int(info.threat_level)
@@ -263,22 +302,6 @@ class Display:
                 tbl.add_row("Threat Gauge", gauge)
             except (ValueError, TypeError):
                 pass
-
-        content = Group(
-            Align.center(header),
-            Align.center(ip_row),
-            Text(""),
-            Align.center(tbl),
-        )
-
-        panel = Panel(
-            content,
-            border_style=Style(color=PALETTE[0], bold=True),
-            box=DOUBLE,
-            padding=(1, 3),
-            expand=False,
-        )
-        console.print(Align.center(panel))
 
     @staticmethod
     async def scanning_animation(ip: str, duration: float = 1.8) -> None:

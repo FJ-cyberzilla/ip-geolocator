@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from typing import List, Optional
+import functools
+from typing import List, Optional, Callable, Any, TypeVar, cast
 
 import aiohttp
 
@@ -38,12 +39,16 @@ class NetworkError(IPGeoError):
 # ---------------------------------------------------------------------------
 # Retry helper for transient errors
 # ---------------------------------------------------------------------------
-def async_retry(max_retries: int = 3, backoff_factor: float = 0.5):
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def async_retry(max_retries: int = 3, backoff_factor: float = 0.5) -> Callable[[F], F]:
     """Decorator that retries a coroutine on NetworkError or RateLimitError."""
 
-    def decorator(func):
-        async def wrapper(*args, **kwargs):
-            last_exc = None
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Optional[Exception] = None
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
@@ -64,9 +69,11 @@ def async_retry(max_retries: int = 3, backoff_factor: float = 0.5):
                         exc,
                     )
                     await asyncio.sleep(wait)
-            raise last_exc
+            if last_exc:
+                raise last_exc
+            raise RuntimeError("Unreachable code path in async_retry: loop finished without exception or success")
 
-        return wrapper
+        return cast(F, wrapper)
 
     return decorator
 
@@ -123,18 +130,21 @@ class GeoLocationService:
             if len(results) >= max_sources:
                 break
 
-            try:
-                info = await self._fetch_from_service(service, ip)
+            info = await self._try_fetch_service(service, ip)
+            if info:
                 results.append(info)
-            except AuthenticationError:
-                raise
-            except (IPGeoError, aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as exc:
-                logging.warning("Service %s failed for %s: %s", service.name, ip, exc)
-                continue
-
         return results
 
-    async def close(self):
+    async def _try_fetch_service(self, service: GeolocationServiceProtocol, ip: str) -> Optional[IPInfo]:
+        try:
+            return await self._fetch_from_service(service, ip)
+        except AuthenticationError:
+            raise
+        except (IPGeoError, aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as exc:
+            logging.warning("Service %s failed for %s: %s", service.name, ip, exc)
+            return None
+
+    async def close(self) -> None:
         """Close session."""
         if self.session and not self.session.closed:
             try:
