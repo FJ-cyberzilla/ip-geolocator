@@ -52,7 +52,7 @@ class BaseApiService(ABC):
 class IpApiService(BaseApiService):
     """Ip-api.com implementation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("ip-api")
 
     def parse_response(self, data: dict, ip: str) -> IPInfo:
@@ -81,7 +81,7 @@ class IpApiService(BaseApiService):
 class IpStackService(BaseApiService):
     """Ipstack.com implementation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("ipstack")
 
     def parse_response(self, data: dict, ip: str) -> IPInfo:
@@ -114,7 +114,7 @@ class IpStackService(BaseApiService):
 class MaxMindService(BaseApiService):
     """MaxMind implementation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__("maxmind")
 
     def parse_response(self, data: dict, ip: str) -> IPInfo:

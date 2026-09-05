@@ -6,6 +6,7 @@ import asyncio
 import ipaddress
 import logging
 import traceback
+from typing import Any, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -15,9 +16,8 @@ from rich.text import Text
 
 from .config import ConfigManager
 from .engine import IntelligenceOrchestrator
-from .reporter import export_data
+from .reporting_service import ReportingService
 from .ui import Display
-from .viz import generate_visual_report, open_visual_report
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -34,6 +34,7 @@ class App:
     def __init__(self) -> None:
         self.config = ConfigManager()
         self.orchestrator = IntelligenceOrchestrator(self.config)
+        self.reporter = ReportingService(self.config)
         self._running = True
 
         # Menu dispatch – maps user‑friendly numbers to (label, handler)
@@ -94,7 +95,8 @@ class App:
     async def _execute_scan(self, target: str) -> Optional[Any]:
         with console.status("[bold gold1]Orchestrating Intelligence...[/]"):
             try:
-                return await self.orchestrator.get_intel(target)
+                results = await self.orchestrator.get_intel(target)
+                return results[0] if results else None
             except (RuntimeError, ValueError, OSError) as exc:
                 logger.exception("Scan failed for target '%s': %s", target, exc)
                 console.print(
@@ -108,20 +110,23 @@ class App:
             choices=["none", "visual", "stix", "json"],
             default="none",
         )
-        if action == "visual":
-            try:
-                path = generate_visual_report(info, self.config.reports_dir)
-                open_visual_report(path)
-            except (OSError, RuntimeError) as exc:
-                console.print("[red]Failed to generate visual report.[/]")
-                logger.exception("Visual report generation failed: %s", exc)
-        elif action in ("stix", "json"):
-            export_data(info, action)
+        if action != "none":
+            self.reporter.handle_post_scan(info, action)
 
 
     async def _handle_settings(self) -> None:
-        """Placeholder for settings management."""
-        console.print("[yellow]Settings management coming soon.[/]")
+        """Display current settings."""
+        console.print(
+            Panel(
+                Text.assemble(
+                    ("Current Configuration\n\n", Style(bold=True)),
+                    (f"Reports Directory: {self.config.reports_dir}\n", Style(color="cyan")),
+                    (f"Default Service: {self.config.get('settings', 'default_service')}", Style(color="cyan")),
+                ),
+                title="Settings",
+                border_style="yellow",
+            )
+        )
 
     async def _handle_about(self) -> None:
         """Display about information."""

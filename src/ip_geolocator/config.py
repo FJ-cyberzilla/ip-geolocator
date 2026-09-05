@@ -10,7 +10,7 @@ import os
 import threading
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import yaml
 
@@ -76,7 +76,8 @@ class ConfigManager:
         if env_value is not None:
             return env_value
         with self._lock:
-            return self.config.get("api_keys", {}).get(service.lower())
+            val = self.config.get("api_keys", {}).get(service.lower())
+            return cast(Optional[str], val)
 
     def get_maxmind_auth(self) -> tuple:
         """Return MaxMind credentials from environment or config."""
@@ -140,7 +141,7 @@ class ConfigManager:
     @staticmethod
     def _deepcopy_default() -> Dict[str, Any]:
         """Deep copy the default configuration."""
-        return yaml.safe_load(yaml.dump(DEFAULT_CONFIG))
+        return cast(Dict[str, Any], yaml.safe_load(yaml.dump(DEFAULT_CONFIG)))
 
     @staticmethod
     def _merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> None:

@@ -392,18 +392,24 @@ class IPInfo:
     rdns_geo_hint: str = ""
     reliability_index: float = 1.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Auto-calculate and validate fields after construction."""
-        # --- 1. IP version detection / correction ---
-        if self.ip != "127.0.0.1":
-            try:
-                addr = ipaddress.ip_address(self.ip)
-                self.version = "IPv6" if addr.version == 6 else "IPv4"
-            except ValueError:
-                # Keep whatever version was passed (or default)
-                pass
+        self._detect_ip_version()
+        self._coerce_lat_lon()
+        self._derive_continent()
+        self._set_eu_membership()
+        self._set_flag_emoji()
 
-        # --- 2. Latitude / longitude coercion with warning ---
+    def _detect_ip_version(self) -> None:
+        if self.ip == "127.0.0.1":
+            return
+        try:
+            addr = ipaddress.ip_address(self.ip)
+            self.version = "IPv6" if addr.version == 6 else "IPv4"
+        except ValueError:
+            pass
+
+    def _coerce_lat_lon(self) -> None:
         for field_name in ("latitude", "longitude"):
             try:
                 setattr(self, field_name, float(getattr(self, field_name)))
@@ -416,17 +422,17 @@ class IPInfo:
                 )
                 setattr(self, field_name, 0.0)
 
-        # --- 3. Continent auto-derivation from country_code ---
+    def _derive_continent(self) -> None:
         if self.continent_code == "XX" and self.country_code != "XX":
             continent_code = COUNTRY_CONTINENT.get(self.country_code, "XX")
             self.continent_code = continent_code
             self.continent = CONTINENT_MAP.get(continent_code, "Unknown")
 
-        # --- 4. EU membership ---
+    def _set_eu_membership(self) -> None:
         if not self.is_eu and self.country_code in EU_COUNTRIES:
             self.is_eu = True
 
-        # --- 5. Flag emoji (cached) ---
+    def _set_flag_emoji(self) -> None:
         if not self.flag_emoji and self.country_code != "XX":
             self.flag_emoji = self.country_code_to_flag(self.country_code)
 
@@ -435,18 +441,13 @@ class IPInfo:
         """Convert ISO 3166-1 alpha-2 code to a flag emoji."""
         if not country_code or len(country_code) != 2:
             return "🏳"
-        # "XX" is a reserved placeholder and never a real country
-        if country_code.upper() == "XX":
+        
+        country_code = country_code.upper()
+        if country_code == "XX" or not country_code.isalpha():
             return "🏳"
-        if not (country_code[0].isalpha() and country_code[1].isalpha()):
-            return "🏳"
+            
         offset = 127397  # Unicode Regional Indicator Symbol A minus ord('A')
-        try:
-            return chr(ord(country_code[0].upper()) + offset) + chr(
-                ord(country_code[1].upper()) + offset
-            )
-        except ValueError:
-            return "🏳"
+        return chr(ord(country_code[0]) + offset) + chr(ord(country_code[1]) + offset)
 
     @property
     def threat_int(self) -> int:

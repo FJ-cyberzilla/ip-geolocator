@@ -155,42 +155,9 @@ def _build_footer_sparks() -> Text:
     return _gradient_span(spark, bold=False)
 
 
-# ── Main display class ─────────────────────────────────────────────────────
-class Display:
-    """
-    Advanced Orange Inferno display engine.
-
-    All methods are static and designed for production use:
-        - Fully responsive to terminal width
-        - Async safe (scanning animation uses asyncio.sleep)
-        - Dynamic menu and info rendering
-        - Type-safe and well-documented
-    """
-
-    # Default fields for show_info (display name, IPInfo attribute)
-    DEFAULT_INFO_FIELDS: List[Tuple[str, str]] = [
-        ("Country", "country"),
-        ("Region", "region"),
-        ("City", "city"),
-        ("ISP", "isp"),
-        ("ASN", "asn"),
-        ("Timezone", "timezone"),
-        ("Latitude", "latitude"),
-        ("Longitude", "longitude"),
-        ("Proxy", "proxy"),
-        ("Hosting", "hosting"),
-        ("Threat Level", "threat_level"),
-        ("Flag", "flag_emoji"),
-    ]
-
+class BannerRenderer:
     @staticmethod
-    def banner(menu_items: Optional[List[str]] = None) -> None:
-        """
-        Clear screen and render the full banner with optional dynamic menu.
-
-        Args:
-            menu_items: List of command labels. If None, a default menu is shown.
-        """
+    def render(menu_items: Optional[List[str]] = None) -> None:
         console = Console()
         console.clear()
 
@@ -218,29 +185,33 @@ class Display:
             border_style=BORDER_STYLE,
             box=HEAVY,
             padding=(1, 3),
-            expand=True,  # fill available width
+            expand=True,
         )
         console.print(Align.center(panel))
         console.print("")
 
-    @staticmethod
-    def show_info(
-        info: Any,
-        fields: Optional[List[Tuple[str, str]]] = None,
-        title: str = "ANALYSIS COMPLETE",
-    ) -> None:
-        """
-        Display geolocation results in a styled panel.
 
-        Args:
-            info: An IPInfo-like object with attribute access.
-            fields: List of (display_name, attribute_name) to show.
-                    Defaults to DEFAULT_INFO_FIELDS.
-            title: Header text for the panel.
-        """
+class InfoPanelRenderer:
+    DEFAULT_INFO_FIELDS: List[Tuple[str, str]] = [
+        ("Country", "country"),
+        ("Region", "region"),
+        ("City", "city"),
+        ("ISP", "isp"),
+        ("ASN", "asn"),
+        ("Timezone", "timezone"),
+        ("Latitude", "latitude"),
+        ("Longitude", "longitude"),
+        ("Proxy", "proxy"),
+        ("Hosting", "hosting"),
+        ("Threat Level", "threat_level"),
+        ("Flag", "flag_emoji"),
+    ]
+
+    @staticmethod
+    def render(info: Any, fields: Optional[List[Tuple[str, str]]] = None, title: str = "ANALYSIS COMPLETE") -> None:
         console = Console()
         if fields is None:
-            fields = Display.DEFAULT_INFO_FIELDS
+            fields = InfoPanelRenderer.DEFAULT_INFO_FIELDS
 
         header = Text.assemble(
             ("  ◈ ", SUCCESS_STYLE), (title, SUCCESS_STYLE), (" ◈  ", SUCCESS_STYLE)
@@ -250,7 +221,7 @@ class Display:
             (f"  {getattr(info, 'ip', 'N/A')}  ", Style(color=PALETTE[0], bold=True)),
         )
 
-        tbl = Display._build_info_table(info, fields)
+        tbl = InfoPanelRenderer._build_info_table(info, fields)
 
         content = Group(
             Align.center(header),
@@ -290,7 +261,7 @@ class Display:
                 val = "N/A"
             tbl.add_row(display_name, str(val))
 
-        Display._add_threat_gauge(tbl, info)
+        InfoPanelRenderer._add_threat_gauge(tbl, info)
         return tbl
 
     @staticmethod
@@ -302,6 +273,16 @@ class Display:
                 tbl.add_row("Threat Gauge", gauge)
             except (ValueError, TypeError):
                 pass
+
+class Display:
+    """
+    Advanced Orange Inferno display engine.
+
+    Now composed of smaller component renderers.
+    """
+
+    banner = BannerRenderer.render
+    show_info = InfoPanelRenderer.render
 
     @staticmethod
     async def scanning_animation(ip: str, duration: float = 1.8) -> None:
