@@ -11,15 +11,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from ip_geolocator.models import IPInfo
-from ip_geolocator.config import ConfigManager
-from ip_geolocator.api import (
+from ip_geolocator.core.models import IPInfo
+from ip_geolocator.core.config import ConfigManager
+from ip_geolocator.services.api import (
     GeoLocationService,
     IPGeoError,
     AuthenticationError,
     NetworkError,
 )
-from ip_geolocator.services import IpApiService, IpStackService, MaxMindService
+from ip_geolocator.services.service_impls import IpApiService, IpStackService, MaxMindService
 
 
 # ---------------------------------------------------------------------------
@@ -64,14 +64,14 @@ class TestIPInfo(unittest.TestCase):
 # Tests for ConfigManager
 # ---------------------------------------------------------------------------
 class TestConfigManager(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmpdir = TemporaryDirectory()
         self.base = Path(self.tmpdir.name)
         # Force ConfigManager to use our temp dir via env var
         os.environ["IPGEO_HOME"] = str(self.base)
         self.config = ConfigManager()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         os.environ.pop("IPGEO_HOME", None)
         self.tmpdir.cleanup()
 
@@ -109,9 +109,11 @@ class TestConfigManager(unittest.TestCase):
 # Async tests for GeoLocationService
 # ---------------------------------------------------------------------------
 class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
+    async def asyncSetUp(self) -> None:
         # Use a minimal ConfigManager (without real keys) for unit tests
         self.config = MagicMock(spec=ConfigManager)
+        self.config.redis_url = "redis://localhost"
+        self.config.maxmind_db_path = None
         self.service = GeoLocationService(self.config)
 
     async def test_lookup_multi_mock_success(self) -> None:
@@ -151,43 +153,70 @@ class TestGeoLocationService(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0].country, "Germany")
 
-    async def asyncTearDown(self):
-        await self.service.close()
+    async def test_get_ip_info_fallback(self) -> None:
+        """Verify Cache -> API -> Local DB fallback logic."""
+        ip = "1.2.3.4"
+        info = IPInfo(ip=ip, country="FallbackCountry")
+
+        # 1. Test Cache hit
+        with patch.object(self.service.cache, "get", return_value=info):
+            result = await self.service.get_ip_info(ip)
+            self.assertEqual(result, info)
+            self.assertEqual(result.country, "FallbackCountry")
+
+        # 2. Test Cache miss, API hit
+        with patch.object(self.service.cache, "get", return_value=None):
+            with patch.object(self.service, "lookup_multi", new=AsyncMock(return_value=[info])):
+                with patch.object(self.service.cache, "set") as mock_set:
+                    result = await self.service.get_ip_info(ip)
+                    self.assertEqual(result, info)
+                    mock_set.assert_called_once()
+
+        # 3. Test Cache miss, API miss, Local DB hit
+        with patch.object(self.service.cache, "get", return_value=None):
+            with patch.object(self.service, "lookup_multi", new=AsyncMock(return_value=[])):
+                with patch.object(self.service.local_db, "lookup", return_value=info):
+                    with patch.object(self.service.cache, "set") as mock_set:
+                        result = await self.service.get_ip_info(ip)
+                        self.assertEqual(result, info)
+                        mock_set.assert_called_once()
+
 
 
 # ---------------------------------------------------------------------------
 # Tests for reporter
 # ---------------------------------------------------------------------------
 class TestReporter(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self.tmpdir = TemporaryDirectory()
         self.cwd = os.getcwd()
         os.chdir(self.tmpdir.name)
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         os.chdir(self.cwd)
         self.tmpdir.cleanup()
 
-    def test_export_json(self):
+    def test_export_json(self) -> None:
         """Test JSON export."""
-        from ip_geolocator.reporter import export_data
+        from ip_geolocator.utils.reporter import export_data
         info = IPInfo(ip="1.2.3.4", country="Testland")
         export_data(info, "json")
         self.assertTrue(os.path.exists("report_1.2.3.4.json"))
 
-    def test_export_stix(self):
+    def test_export_stix(self) -> None:
         """Test STIX export."""
-        from ip_geolocator.reporter import export_data
+        from ip_geolocator.utils.reporter import export_data
         info = IPInfo(ip="1.2.3.4", country="Testland")
         export_data(info, "stix")
         self.assertTrue(os.path.exists("report_1.2.3.4_stix.json"))
+
 
 
 # ---------------------------------------------------------------------------
 # Tests for service parsers
 # ---------------------------------------------------------------------------
 class TestServiceParsers(unittest.TestCase):
-    def test_ip_api_parser(self):
+    def test_ip_api_parser(self) -> None:
         """Test IpApiService parser."""
         data = {
             "status": "success",
@@ -203,7 +232,7 @@ class TestServiceParsers(unittest.TestCase):
         self.assertEqual(info.city, "Berlin")
         self.assertEqual(info.isp, "ISP Name")
 
-    def test_ipstack_parser(self):
+    def test_ipstack_parser(self) -> None:
         """Test IpStackService parser."""
         data = {
             "success": True,
@@ -219,7 +248,7 @@ class TestServiceParsers(unittest.TestCase):
         self.assertEqual(info.city, "Paris")
         self.assertEqual(info.isp, "ISP Name")
 
-    def test_maxmind_parser(self):
+    def test_maxmind_parser(self) -> None:
         """Test MaxMindService parser."""
         data = {
             "city": {"names": {"en": "London"}},
@@ -238,3 +267,41 @@ class TestServiceParsers(unittest.TestCase):
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     unittest.main()
+
+# ---------------------------------------------------------------------------
+# Test Input Validation
+# ---------------------------------------------------------------------------
+class TestValidation(unittest.TestCase):
+    def test_validate_ip(self) -> None:
+        from ip_geolocator.utils.validation import validate_ip
+        self.assertEqual(validate_ip("1.1.1.1"), "1.1.1.1")
+        self.assertEqual(validate_ip("2001:db8::1"), "2001:db8::1")
+        self.assertIsNone(validate_ip("invalid-ip"))
+        self.assertIsNone(validate_ip("999.999.999.999"))
+
+
+# ---------------------------------------------------------------------------
+# Extra tests for GeoLocationService
+# ---------------------------------------------------------------------------
+class TestGeoLocationServiceExtras(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.config = MagicMock(spec=ConfigManager)
+        self.config.redis_url = "redis://localhost"
+        self.config.maxmind_db_path = None
+        self.service = GeoLocationService(self.config)
+
+    async def test_get_ip_info_invalid_ip(self) -> None:
+        """Verify invalid IP returns None."""
+        result = await self.service.get_ip_info("invalid-ip")
+        self.assertIsNone(result)
+
+    async def test_get_ip_info_private_ip_skips_api(self) -> None:
+        """Verify private IP skips API and goes to Local DB."""
+        ip = "192.168.1.1"
+        info = IPInfo(ip=ip, country="PrivateCountry")
+        with patch.object(self.service.cache, "get", return_value=None):
+            with patch.object(self.service, "lookup_multi") as mock_api:
+                with patch.object(self.service.local_db, "lookup", return_value=info):
+                    result = await self.service.get_ip_info(ip)
+                    self.assertEqual(result, info)
+                    mock_api.assert_not_called()
